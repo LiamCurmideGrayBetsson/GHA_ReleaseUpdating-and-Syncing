@@ -36,7 +36,7 @@ jobs:
         run: |
           # Get all open and draft PRs
           echo "Fetching all open and draft pull requests..."
-          prs=$(gh pr list --state open --json number,headRefName,isDraft,state --jq '.[] | select(.state == "OPEN") | .headRefName' | sort -u)
+          prs=$(gh pr list --state all --json number,headRefName,isDraft,state --jq '.[] | select(.state == "OPEN" or .isDraft == true) | .headRefName' | sort -u)
 
           if [ -z "$prs" ]; then
             echo "No open or draft PRs found"
@@ -68,7 +68,7 @@ jobs:
             fi
 
             # Check if branch matches release branch pattern (common patterns: release/*, release-*)
-            if [[ "$branch" =~ ^release[/-] ]] || [[ "$branch" =~ [0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            if [[ "$branch" =~ ^release[/-] ]] || [[ "$branch" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
               echo "Processing release branch: $branch"
 
               # Fetch and checkout the branch
