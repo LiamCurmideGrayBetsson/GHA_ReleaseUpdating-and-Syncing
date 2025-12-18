@@ -1,0 +1,112 @@
+name: Update Release Branches
+
+on:
+  pull_request:
+    types: [closed]
+    branches:
+      - master
+      - main
+
+jobs:
+  update-release-branches:
+    # Only run if the PR was merged (not just closed)
+    if: github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
+      pull-requests: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Get all open and draft PRs
+        id: get-prs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Get all open and draft PRs
+          echo "Fetching all open and draft pull requests..."
+          prs=$(gh pr list --state open --json number,headRefName,isDraft,state --jq '.[] | select(.state == "OPEN") | .headRefName' | sort -u)
+
+          if [ -z "$prs" ]; then
+            echo "No open or draft PRs found"
+            echo "branches=" >> $GITHUB_OUTPUT
+          else
+            echo "Found PRs for the following branches:"
+            echo "$prs"
+            # Convert to comma-separated list
+            branches=$(echo "$prs" | tr '\n' ',' | sed 's/,$//')
+            echo "branches=$branches" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Update release branches with master
+        if: steps.get-prs.outputs.branches != ''
+        env:
+          BRANCHES: ${{ steps.get-prs.outputs.branches }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+        run: |
+          # Split branches by comma
+          IFS=',' read -ra BRANCH_ARRAY <<< "$BRANCHES"
+
+          echo "Updating release branches with $BASE_BRANCH..."
+
+          for branch in "${BRANCH_ARRAY[@]}"; do
+            # Skip if branch is the base branch itself
+            if [ "$branch" = "$BASE_BRANCH" ]; then
+              echo "Skipping $branch (base branch)"
+              continue
+            fi
+
+            # Check if branch matches release branch pattern (common patterns: release/*, release-*)
+            if [[ "$branch" =~ ^release[/-] ]] || [[ "$branch" =~ [0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+              echo "Processing release branch: $branch"
+
+              # Fetch and checkout the branch
+              if git fetch origin "$branch" && git checkout "$branch"; then
+                echo "Checked out $branch"
+
+                # Try to merge master into the branch
+                if git merge "origin/$BASE_BRANCH" --no-edit; then
+                  echo "Successfully merged $BASE_BRANCH into $branch"
+
+                  # Push the changes
+                  if git push origin "$branch"; then
+                    echo "Successfully pushed updates to $branch"
+                  else
+                    echo "Failed to push updates to $branch"
+                  fi
+                else
+                  echo "Merge conflict detected in $branch - manual resolution required"
+                  echo "Branch $branch requires manual merge resolution" >> $GITHUB_STEP_SUMMARY
+                fi
+              else
+                echo "Failed to checkout branch $branch"
+              fi
+            else
+              echo "Skipping non-release branch: $branch"
+            fi
+          done
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Release Branch Update Summary" >> $GITHUB_STEP_SUMMARY
+          echo "Base branch: ${{ github.event.pull_request.base.ref }}" >> $GITHUB_STEP_SUMMARY
+          echo "Merged PR: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+
+          if [ -z "${{ steps.get-prs.outputs.branches }}" ]; then
+            echo "No release branches with open PRs found to update." >> $GITHUB_STEP_SUMMARY
+          else
+            echo "Processed branches: ${{ steps.get-prs.outputs.branches }}" >> $GITHUB_STEP_SUMMARY
+          fi
