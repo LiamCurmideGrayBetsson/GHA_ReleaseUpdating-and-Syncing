@@ -15,7 +15,7 @@ jobs:
 
     permissions:
       contents: write
-      pull-requests: read
+      pull-requests: write
 
     steps:
       - name: Checkout repository
@@ -29,23 +29,32 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-      - name: Get all open and draft PRs
+      - name: Get all release branches with open PRs
         id: get-prs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
         run: |
           # Get all open and draft PRs
           echo "Fetching all open and draft pull requests..."
-          prs=$(gh pr list --state all --json number,headRefName,isDraft,state --jq '.[] | select(.state == "OPEN" or .isDraft == true) | .headRefName' | sort -u)
+          
+          # Get branches with PRs targeting master/main
+          prs_to_master=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName == \"$BASE_BRANCH\") | .headRefName")
+          
+          # Get base branches (release branches) that have PRs targeting them
+          release_branches_with_prs=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\.[0-9]+(\\.[0-9]+)?$\")) | .baseRefName")
+          
+          # Combine both lists and remove duplicates
+          all_branches=$(echo -e "$prs_to_master\n$release_branches_with_prs" | sort -u | grep -v '^$')
 
-          if [ -z "$prs" ]; then
-            echo "No open or draft PRs found"
+          if [ -z "$all_branches" ]; then
+            echo "No release branches with open or draft PRs found"
             echo "branches=" >> $GITHUB_OUTPUT
           else
-            echo "Found PRs for the following branches:"
-            echo "$prs"
+            echo "Found release branches to update:"
+            echo "$all_branches"
             # Convert to comma-separated list
-            branches=$(echo "$prs" | tr '\n' ',' | sed 's/,$//')
+            branches=$(echo "$all_branches" | tr '\n' ',' | sed 's/,$//')
             echo "branches=$branches" >> $GITHUB_OUTPUT
           fi
 
@@ -54,6 +63,7 @@ jobs:
         env:
           BRANCHES: ${{ steps.get-prs.outputs.branches }}
           BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Split branches by comma
           IFS=',' read -ra BRANCH_ARRAY <<< "$BRANCHES"
@@ -94,6 +104,49 @@ jobs:
               fi
             else
               echo "Skipping non-release branch: $branch"
+            fi
+          done
+
+      - name: Check for conflicting PRs and notify authors
+        if: steps.get-prs.outputs.branches != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCHES: ${{ steps.get-prs.outputs.branches }}
+        run: |
+          # Split branches by comma
+          IFS=',' read -ra BRANCH_ARRAY <<< "$BRANCHES"
+
+          echo "Checking for PRs with merge conflicts..."
+
+          for branch in "${BRANCH_ARRAY[@]}"; do
+            # Check if branch matches release branch pattern
+            if [[ "$branch" =~ ^release[/-] ]] || [[ "$branch" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+              # Get all open PRs targeting this release branch
+              prs=$(gh pr list --base "$branch" --state open --json number,author,headRefName,mergeable)
+              
+              # Check each PR for conflicts
+              echo "$prs" | jq -c '.[]' | while read -r pr; do
+                pr_number=$(echo "$pr" | jq -r '.number')
+                pr_author=$(echo "$pr" | jq -r '.author.login')
+                pr_branch=$(echo "$pr" | jq -r '.headRefName')
+                mergeable=$(echo "$pr" | jq -r '.mergeable')
+                
+                if [ "$mergeable" = "CONFLICTING" ]; then
+                  echo "⚠️ PR #$pr_number ($pr_branch → $branch) has conflicts"
+                  
+                  # Check if we've already notified about conflicts
+                  existing_comment=$(gh pr view "$pr_number" --json comments --jq '.comments[] | select(.author.login == "github-actions[bot]" and (.body | contains("Merge Conflict Detected"))) | .id' | head -n 1)
+                  
+                  if [ -z "$existing_comment" ]; then
+                    # Comment on the PR using printf to handle special characters
+                    printf '🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated with changes from `main`. Please resolve the conflicts to proceed with merging.\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$branch" "$branch" "$pr_branch" "$pr_author" | gh pr comment "$pr_number" --body-file -
+                    
+                    echo "Notified @$pr_author about conflicts in PR #$pr_number" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "Conflict notification already exists for PR #$pr_number, skipping duplicate comment" >> $GITHUB_STEP_SUMMARY
+                  fi
+                fi
+              done
             fi
           done
 
