@@ -35,28 +35,27 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
         run: |
-          # Get all open and draft PRs
           echo "Fetching all open and draft pull requests..."
 
-          # Temporarily disable exit on error for PR queries
-          set +e
-          prs_to_master=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName == \"$BASE_BRANCH\") | .headRefName")
-          release_branches_with_prs=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\\\.[0-9]+(\\\\.[0-9]+)?$\")) | .baseRefName")
-          set -e
+          (
+            prs_to_master=""
+            release_branches_with_prs=""
 
-          # Combine both lists and remove duplicates
-          all_branches=$(echo -e "$prs_to_master\n$release_branches_with_prs" | sort -u | grep -v '^$')
+            prs_to_master=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName == \"$BASE_BRANCH\") | .headRefName") || prs_to_master=""
+            release_branches_with_prs=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\\\.[0-9]+(\\\\.[0-9]+)?$\")) | .baseRefName") || release_branches_with_prs=""
 
-          if [ -z "$all_branches" ]; then
-            echo "No release branches with open or draft PRs found"
-            echo "branches=" >> $GITHUB_OUTPUT
-          else
-            echo "Found release branches to update:"
-            echo "$all_branches"
-            # Convert to comma-separated list
-            branches=$(echo "$all_branches" | tr '\n' ',' | sed 's/,$//')
-            echo "branches=$branches" >> $GITHUB_OUTPUT
-          fi
+            all_branches=$(echo -e "$prs_to_master\n$release_branches_with_prs" | sort -u | grep -v '^$')
+
+            if [ -z "$all_branches" ]; then
+              echo "No release branches with open or draft PRs found"
+              echo "branches=" >> $GITHUB_OUTPUT
+            else
+              echo "Found release branches to update:"
+              echo "$all_branches"
+              branches=$(echo "$all_branches" | tr '\n' ',' | sed 's/,$//')
+              echo "branches=$branches" >> $GITHUB_OUTPUT
+            fi
+          )
 
       - name: Update release branches with master
         if: steps.get-prs.outputs.branches != ''
