@@ -78,7 +78,7 @@ jobs:
             fi
 
             # Check if branch matches release branch pattern (common patterns: release/*, release-*)
-            if [[ "$branch" =~ ^release[/-] ]] || [[ "$branch" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            if [[ "$branch" =~ ^release[/-] ]] || [[ "$branch" =~ ^[0-9]+\\.[0-9]+(\\.[0-9]+)?$ ]]; then
               echo "Processing release branch: $branch"
 
               # Fetch and checkout the branch
@@ -120,7 +120,7 @@ jobs:
 
           for branch in "${BRANCH_ARRAY[@]}"; do
             # Check if branch matches release branch pattern
-            if [[ "$branch" =~ ^release[/-] ]] || [[ "$branch" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
+            if [[ "$branch" =~ ^release[/-] ]] || [[ "$branch" =~ ^[0-9]+\\.[0-9]+(\\.[0-9]+)?$ ]]; then
               # Get all open PRs targeting this release branch
               prs=$(gh pr list --base "$branch" --state open --json number,author,headRefName,mergeable)
               
