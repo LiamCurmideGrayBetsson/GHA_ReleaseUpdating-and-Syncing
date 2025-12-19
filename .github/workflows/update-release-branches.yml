@@ -42,7 +42,7 @@ jobs:
           prs_to_master=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName == \"$BASE_BRANCH\") | .headRefName")
           
           # Get base branches (release branches) that have PRs targeting them
-          release_branches_with_prs=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\.[0-9]+(\\.[0-9]+)?$\")) | .baseRefName")
+          release_branches_with_prs=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\.[0-9]+(\\.[0-9]+)?$\")) | .baseRefName") 
           
           # Combine both lists and remove duplicates
           all_branches=$(echo -e "$prs_to_master\n$release_branches_with_prs" | sort -u | grep -v '^$')
@@ -139,7 +139,7 @@ jobs:
                   
                   if [ -z "$existing_comment" ]; then
                     # Comment on the PR using printf to handle special characters
-                    printf '🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated with changes from `main`. Please resolve the conflicts to proceed with merging.\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$branch" "$branch" "$pr_branch" "$pr_author" | gh pr comment "$pr_number" --body-file -
+                    printf '🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated with changes from `master`. Please resolve the conflicts to proceed with merging.\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$branch" "$branch" "$pr_branch" "$pr_author" | gh pr comment "$pr_number" --body-file -
                     
                     echo "Notified @$pr_author about conflicts in PR #$pr_number" >> $GITHUB_STEP_SUMMARY
                   else
