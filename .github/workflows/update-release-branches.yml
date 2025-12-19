@@ -37,13 +37,13 @@ jobs:
         run: |
           # Get all open and draft PRs
           echo "Fetching all open and draft pull requests..."
-          
-          # Get branches with PRs targeting master/main
-          prs_to_master=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName == \"$BASE_BRANCH\") | .headRefName" || true)
-          
-          # Get base branches (release branches) that have PRs targeting them
-          release_branches_with_prs=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\\\.[0-9]+(\\\\.[0-9]+)?$\")) | .baseRefName" || true)
-          
+
+          # Temporarily disable exit on error for PR queries
+          set +e
+          prs_to_master=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName == \"$BASE_BRANCH\") | .headRefName")
+          release_branches_with_prs=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\\\.[0-9]+(\\\\.[0-9]+)?$\")) | .baseRefName")
+          set -e
+
           # Combine both lists and remove duplicates
           all_branches=$(echo -e "$prs_to_master\n$release_branches_with_prs" | sort -u | grep -v '^$')
 
