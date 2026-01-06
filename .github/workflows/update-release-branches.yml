@@ -58,6 +58,13 @@ jobs:
             echo "branches=$branches" >> $GITHUB_OUTPUT
           fi
 
+      - name: No release branches found, skipping update
+        if: steps.get-prs.outputs.branches == ''
+        run: |
+          echo "No release branches found. Skipping update process. Returning true."
+          echo "::notice::No release branches found. Skipping update process."
+          exit 0
+
       - name: Update release branches with master
         if: steps.get-prs.outputs.branches != ''
         env:
