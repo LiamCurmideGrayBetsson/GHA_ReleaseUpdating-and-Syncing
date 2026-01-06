@@ -10,3 +10,5 @@ TEst
 
 Test5
 Test4
+
+Test - If No Empty Release Branches to update
