@@ -40,11 +40,20 @@ jobs:
           prs_to_master=""
           release_branches_with_prs=""
 
-          prs_to_master=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName == \"$BASE_BRANCH\") | .headRefName") || prs_to_master=""
-          if [ $? -ne 0 ]; then prs_to_master=""; fi
 
-          release_branches_with_prs=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\\\.[0-9]+(\\\\.[0-9]+)?$\")) | .baseRefName") || release_branches_with_prs=""
-          if [ $? -ne 0 ]; then release_branches_with_prs=""; fi
+          tmp=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName == \"$BASE_BRANCH\") | .headRefName")
+          if [ $? -eq 0 ]; then
+            prs_to_master="$tmp"
+          else
+            prs_to_master=""
+          fi
+
+          tmp=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\\\.[0-9]+(\\\\.[0-9]+)?$\")) | .baseRefName")
+          if [ $? -eq 0 ]; then
+            release_branches_with_prs="$tmp"
+          else
+            release_branches_with_prs=""
+          fi
 
           all_branches=$(echo -e "$prs_to_master\n$release_branches_with_prs" | sort -u | grep -v '^$')
 
