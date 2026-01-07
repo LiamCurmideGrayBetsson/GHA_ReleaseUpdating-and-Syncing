@@ -121,6 +121,14 @@ jobs:
                   fi
                 else
                   echo "Merge conflict detected in $branch - manual resolution required"
+                  # List conflicting files and add to summary
+                  conflict_files=$(git diff --name-only --diff-filter=U || true)
+                  if [ -n "$conflict_files" ]; then
+                    echo "Conflicting files in $branch:" >> $GITHUB_STEP_SUMMARY
+                    echo "$conflict_files" | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+                  fi
+                  # Abort merge to clean working tree state
+                  git merge --abort || true
                   echo "Branch $branch requires manual merge resolution" >> $GITHUB_STEP_SUMMARY
                 fi
               else
@@ -162,8 +170,31 @@ jobs:
                   existing_comment=$(gh pr view "$pr_number" --json comments --jq '.comments[] | select(.author.login == "github-actions[bot]" and (.body | contains("Merge Conflict Detected"))) | .id' | head -n 1)
                   
                   if [ -z "$existing_comment" ]; then
-                    # Comment on the PR using printf to handle special characters
-                    printf '🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated with changes from `%s`. Please resolve the conflicts to proceed with merging.\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$branch" "$branch" "$branch" "$pr_branch" "$pr_author" | gh pr comment "$pr_number" --body-file -
+                    # Attempt to identify conflicting files by merging PR into the release branch locally (no commit)
+                    set +e
+                    git fetch origin "$branch" "$pr_branch" >/dev/null 2>&1
+                    git checkout "$branch" >/dev/null 2>&1 && git reset --hard "origin/$branch" >/dev/null 2>&1
+                    git merge --no-commit --no-ff "origin/$pr_branch" >/dev/null 2>&1
+                    merge_status=$?
+                    conflict_list=""
+                    if [ $merge_status -ne 0 ]; then
+                      files=$(git diff --name-only --diff-filter=U | head -n 20)
+                      if [ -n "$files" ]; then
+                        conflict_list=$(echo "$files" | sed 's/^/- /')
+                      fi
+                      git merge --abort >/dev/null 2>&1 || true
+                    else
+                      # No conflict detected in local attempt; abort any pending merge state
+                      git merge --abort >/dev/null 2>&1 || true
+                    fi
+                    set -e
+
+                    # Comment on the PR including conflicting files if detected
+                    if [ -n "$conflict_list" ]; then
+                      printf '🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated with changes from `%s`.\n\n**Conflicting files (top 20):**\n%s\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$branch" "$conflict_list" "$branch" "$branch" "$pr_branch" "$pr_author" | gh pr comment "$pr_number" --body-file -
+                    else
+                      printf '🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated with changes from `%s`. Please resolve the conflicts to proceed with merging.\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$branch" "$branch" "$branch" "$pr_branch" "$pr_author" | gh pr comment "$pr_number" --body-file -
+                    fi
                     
                     echo "Notified @$pr_author about conflicts in PR #$pr_number" >> $GITHUB_STEP_SUMMARY
                   else
