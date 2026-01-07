@@ -31,13 +31,15 @@ This repository contains a GitHub Action that automatically updates all active r
 - ✅ **Automatic conflict detection** for feature branch PRs after updates
 - ✅ **Smart notifications** that avoid duplicate comments on the same PR
 - ✅ **Only updates active branches** with open or draft PRs
+- ✅ **Includes conflicting files** in PR comments (top 20 when detected)
+- ✅ **Run summary** logs processed branches and notifications
 
 ## Release Branch Patterns
 
 The workflow recognizes the following patterns as release branches:
 - `release/*` (e.g., `release/v1.0`, `release/2024-Q4`)
 - `release-*` (e.g., `release-1.0`, `release-hotfix`)
-- Version numbers (e.g., `1.0.0`, `2.1.0`)
+- Version numbers (e.g., `1.2`, `1.2.3`)
 
 ## Setup
 
@@ -99,6 +101,8 @@ Please resolve the conflicts to proceed with merging.
 cc @username
 ```
 
+Note: When detected, the comment also includes a "Conflicting files (top 20)" section listing the first 20 files with conflicts.
+
 ## Workflow Summary
 
 After each run, the workflow provides a summary showing:
@@ -107,6 +111,7 @@ After each run, the workflow provides a summary showing:
 - Which release branches were processed
 - Any branches that require manual conflict resolution
 - Which PR authors were notified about conflicts
+- Conflicting files per branch (when detected)
 
 ## Benefits
 
