@@ -1,4 +1,4 @@
 test3.txt
 
 
-Test - To see what happens with a Conflict branch
+Test - To see what happens with a Conflict branch, take 2
