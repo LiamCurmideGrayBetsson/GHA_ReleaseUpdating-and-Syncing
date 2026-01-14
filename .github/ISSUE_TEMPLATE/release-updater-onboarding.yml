@@ -1,0 +1,55 @@
+name: Onboard repo to shared release updater
+description: Request to add the caller workflow that uses the centralized release updater
+title: "Onboard: <org>/<repo>"
+labels: ["onboarding", "workflow"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for adopting the shared release updater! Please provide the details below to speed up onboarding.
+  - type: input
+    id: repo
+    attributes:
+      label: Repository
+      description: Full name (e.g., org/repo)
+      placeholder: org/repo
+    validations:
+      required: true
+  - type: input
+    id: base_branch
+    attributes:
+      label: Base branch
+      description: Branch to merge from (e.g., main or master)
+      placeholder: main
+    validations:
+      required: true
+  - type: textarea
+    id: release_patterns
+    attributes:
+      label: Release branch patterns
+      description: Patterns considered release branches (e.g., release/*, release-*, or versions like 1.2 / 1.2.3)
+      placeholder: |
+        release/*
+        release-*
+        1.x
+  - type: checkboxes
+    id: permissions
+    attributes:
+      label: Workflow permissions
+      description: Confirm the repo has Actions GITHUB_TOKEN set to Read and write
+      options:
+        - label: Actions → Workflow permissions set to Read and write
+          required: true
+  - type: input
+    id: contact
+    attributes:
+      label: Point of contact
+      description: GitHub handle or email for follow-up
+      placeholder: "@username"
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Anything else we should know

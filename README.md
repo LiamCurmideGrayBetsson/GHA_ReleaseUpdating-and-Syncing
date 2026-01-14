@@ -69,7 +69,7 @@ permissions:
 jobs:
    call-shared:
       if: github.event.pull_request.merged == true
-      uses: LiamCurmideGrayBetsson/GHA_ReleaseUpdating-and-Syncing/.github/workflows/update-release-branches.yml@v1
+      uses: LiamCurmideGrayBetsson/GHA_ReleaseUpdating-and-Syncing/.github/workflows/update-release-branches.yml@version1.0.0
       with:
          base_branch: ${{ github.event.pull_request.base.ref }}
          merged_pr_number: ${{ github.event.pull_request.number }}
@@ -77,29 +77,11 @@ jobs:
 ```
 
 Notes:
-- Use `@v1` once this repo publishes a `v1` tag; until then you can use `@main` or a specific commit SHA.
+- Use `@version1.0.0` for stable pinning; for development you can temporarily use `@main` or a specific commit SHA.
 - `secrets: inherit` passes the caller repo’s secrets and `GITHUB_TOKEN` to the reusable workflow.
 - The called workflow already requests the needed permissions; setting them in the caller makes the requirement explicit.
 
-Optional: schedule-based caller (runs nightly against a base branch):
-
-```
-name: Nightly Release Sync
-on:
-   schedule:
-      - cron: '0 2 * * *'
-
-permissions:
-   contents: write
-   pull-requests: write
-
-jobs:
-   call-shared:
-      uses: LiamCurmideGrayBetsson/GHA_ReleaseUpdating-and-Syncing/.github/workflows/update-release-branches.yml@v1
-      with:
-         base_branch: main
-      secrets: inherit
-```
+ 
 
 ### Prerequisites
 
@@ -222,7 +204,7 @@ If you expect a conflict notification but didn't receive one:
 ### Cross-repo usage tips
 
 - Ensure the caller repo can read this repository (and same org if this repo is private).
-- Prefer pinning to a tag like `@v1` for stability; update the tag when releasing breaking changes.
+- Prefer pinning to a tag like `@version1.0.0` for stability; update to newer tags when releasing breaking changes.
 - Reusable workflows run in the caller’s security context; pushes and PR comments affect the caller repo.
 
 ### Developers Still Getting Duplicate Notifications
