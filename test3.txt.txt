@@ -2,3 +2,6 @@ test3.txt
 
 
 Test - To see what happens with a Conflict branch, take 2
+
+
+test - live conflict
