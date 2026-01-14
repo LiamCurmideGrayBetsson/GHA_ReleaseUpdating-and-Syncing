@@ -6,6 +6,16 @@ on:
     branches:
       - master
       - main
+  workflow_call:
+    inputs:
+      base_branch:
+        description: 'Base branch to update release branches from (e.g., main)'
+        required: true
+        type: string
+      merged_pr_number:
+        description: 'Merged PR number (optional, for summary)'
+        required: false
+        type: number
 
 jobs:
   update-release-branches:
@@ -24,6 +34,19 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve inputs
+        id: resolve
+        env:
+          INPUT_BASE_BRANCH: ${{ inputs.base_branch }}
+          EVENT_BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          INPUT_PR_NUMBER: ${{ inputs.merged_pr_number }}
+          EVENT_PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          base="${INPUT_BASE_BRANCH:-$EVENT_BASE_BRANCH}"
+          echo "base=$base" >> $GITHUB_OUTPUT
+          pr="${INPUT_PR_NUMBER:-$EVENT_PR_NUMBER}"
+          echo "pr=$pr" >> $GITHUB_OUTPUT
+
       - name: Configure Git
         run: |
           git config user.name "github-actions[bot]"
@@ -33,7 +56,7 @@ jobs:
         id: get-prs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          BASE_BRANCH: ${{ steps.resolve.outputs.base }}
         run: |
           echo "Fetching all open and draft pull requests..."
 
@@ -86,7 +109,7 @@ jobs:
         if: steps.get-prs.outputs.branches != ''
         env:
           BRANCHES: ${{ steps.get-prs.outputs.branches }}
-          BASE_BRANCH: ${{ github.event.pull_request.base.ref }}
+          BASE_BRANCH: ${{ steps.resolve.outputs.base }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Split branches by comma
@@ -207,10 +230,15 @@ jobs:
 
       - name: Summary
         if: always()
+        env:
+          BASE_BRANCH: ${{ steps.resolve.outputs.base }}
+          MERGED_PR_NUMBER: ${{ steps.resolve.outputs.pr }}
         run: |
           echo "## Release Branch Update Summary" >> $GITHUB_STEP_SUMMARY
-          echo "Base branch: ${{ github.event.pull_request.base.ref }}" >> $GITHUB_STEP_SUMMARY
-          echo "Merged PR: #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "Base branch: $BASE_BRANCH" >> $GITHUB_STEP_SUMMARY
+          if [ -n "$MERGED_PR_NUMBER" ]; then
+            echo "Merged PR: #$MERGED_PR_NUMBER" >> $GITHUB_STEP_SUMMARY
+          fi
           echo "" >> $GITHUB_STEP_SUMMARY
 
           if [ -z "${{ steps.get-prs.outputs.branches }}" ]; then

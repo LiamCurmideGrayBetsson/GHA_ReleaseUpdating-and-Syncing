@@ -43,21 +43,81 @@ The workflow recognizes the following patterns as release branches:
 
 ## Setup
 
+### Recommended: Reuse This Workflow (No code copy)
+
+You can call this workflow from other repositories as a reusable workflow. This keeps all logic centralized here and lets consumers use a tiny caller stub only.
+
+Requirements:
+- Repos must be in the same org to consume a private workflow (public repos can be consumed by anyone with read access).
+- Pin to a stable ref (recommended) like a release tag `v1` rather than a branch.
+
+Minimal consumer workflow (in the target repo):
+
+```
+name: Use Shared Release Updater
+on:
+   pull_request:
+      types: [closed]
+      branches:
+         - main
+         - master
+
+permissions:
+   contents: write
+   pull-requests: write
+
+jobs:
+   call-shared:
+      if: github.event.pull_request.merged == true
+      uses: LiamCurmideGrayBetsson/GHA_ReleaseUpdating-and-Syncing/.github/workflows/update-release-branches.yml@v1
+      with:
+         base_branch: ${{ github.event.pull_request.base.ref }}
+         merged_pr_number: ${{ github.event.pull_request.number }}
+      secrets: inherit
+```
+
+Notes:
+- Use `@v1` once this repo publishes a `v1` tag; until then you can use `@main` or a specific commit SHA.
+- `secrets: inherit` passes the caller repo’s secrets and `GITHUB_TOKEN` to the reusable workflow.
+- The called workflow already requests the needed permissions; setting them in the caller makes the requirement explicit.
+
+Optional: schedule-based caller (runs nightly against a base branch):
+
+```
+name: Nightly Release Sync
+on:
+   schedule:
+      - cron: '0 2 * * *'
+
+permissions:
+   contents: write
+   pull-requests: write
+
+jobs:
+   call-shared:
+      uses: LiamCurmideGrayBetsson/GHA_ReleaseUpdating-and-Syncing/.github/workflows/update-release-branches.yml@v1
+      with:
+         base_branch: main
+      secrets: inherit
+```
+
 ### Prerequisites
 
 - The workflow uses the default `GITHUB_TOKEN` which has automatic permissions
 - No additional secrets are required
 
-### Installation
+### Installation (Alternative: copy file directly)
 
-1. Copy the `.github/workflows/update-release-branches.yml` file to your repository
-2. The workflow will automatically activate on your next PR merge to master
+1. Copy the workflow file to your repo: `.github/workflows/update-release-branches.yml`
+2. It will activate on merged PRs to `master` or `main`
 
 ### Permissions
 
 The workflow requires the following permissions (automatically granted via `GITHUB_TOKEN`):
 - `contents: write` - To push updates to release branches
 - `pull-requests: write` - To comment on PRs with conflict notifications
+
+If calling as a reusable workflow, ensure the caller explicitly grants these permissions at workflow or job scope (see examples above).
 
 ## Usage Examples
 
@@ -158,6 +218,12 @@ If you expect a conflict notification but didn't receive one:
 - GitHub may take a few moments to detect merge conflicts after the branch is updated
 - Check if a notification comment already exists (the workflow prevents duplicate notifications)
 - Verify the PR is in an "open" state (not draft or closed)
+
+### Cross-repo usage tips
+
+- Ensure the caller repo can read this repository (and same org if this repo is private).
+- Prefer pinning to a tag like `@v1` for stability; update the tag when releasing breaking changes.
+- Reusable workflows run in the caller’s security context; pushes and PR comments affect the caller repo.
 
 ### Developers Still Getting Duplicate Notifications
 
