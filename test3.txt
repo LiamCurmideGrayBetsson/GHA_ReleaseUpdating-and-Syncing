@@ -5,3 +5,6 @@ Test - To see what happens with a Conflict branch  take 2
 Test - To see what happens with a Conflict branch, take 3
 Test - To see what happens with a Conflict branch, take 4
 Test - To see what happens with a Conflict branch, take 5
+
+
+Test - conflict
