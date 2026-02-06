@@ -177,31 +177,62 @@ jobs:
             # Check if branch matches release branch pattern
             if [[ "$branch" =~ ^release[/-] ]] || [[ "$branch" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
               # Get all open PRs targeting this release branch
-              prs=$(gh pr list --base "$branch" --state open --json number,author,headRefName,mergeable)
+              set +e
+              prs=$(gh pr list --base "$branch" --state open --json number,author,headRefName,mergeable 2>&1)
+              pr_list_status=$?
+              set -e
               
-              # Check each PR for conflicts
-              echo "$prs" | jq -c '.[]' | while read -r pr; do
+              if [ $pr_list_status -ne 0 ]; then
+                echo "⚠️ Failed to fetch PRs for branch $branch: $prs"
+                continue
+              fi
+              
+              # Use process substitution to avoid subshell and preserve step summary updates
+              while IFS= read -r pr; do
                 pr_number=$(echo "$pr" | jq -r '.number')
                 pr_author=$(echo "$pr" | jq -r '.author.login')
                 pr_branch=$(echo "$pr" | jq -r '.headRefName')
                 mergeable=$(echo "$pr" | jq -r '.mergeable')
                 
-                if [ "$mergeable" = "CONFLICTING" ]; then
-                  echo "⚠️ PR #$pr_number ($pr_branch → $branch) has conflicts"
+                # Check for CONFLICTING, UNKNOWN, or null (GitHub may not have calculated status yet)
+                if [ "$mergeable" = "CONFLICTING" ] || [ "$mergeable" = "UNKNOWN" ] || [ "$mergeable" = "null" ]; then
+                  echo "⚠️ PR #$pr_number ($pr_branch → $branch) mergeable status: $mergeable"
                   
-                  # Check if we've already notified about conflicts
-                  existing_comment=$(gh pr view "$pr_number" --json comments --jq '.comments[] | select(.author.login == "github-actions[bot]" and (.body | contains("Merge Conflict Detected"))) | .id' | head -n 1)
+                  # Clean git state before checking this PR
+                  git reset --hard HEAD >/dev/null 2>&1 || true
+                  git clean -fd >/dev/null 2>&1 || true
+                  git merge --abort >/dev/null 2>&1 || true
+                  
+                  # Check if we've already notified about conflicts (using unique marker)
+                  set +e
+                  existing_comment=$(gh pr view "$pr_number" --json comments --jq '.comments[] | select(.author.login == "github-actions[bot]" and (.body | contains("<!-- conflict-notification -->"))) | .id' 2>&1 | head -n 1)
+                  comment_check_status=$?
+                  set -e
+                  
+                  if [ $comment_check_status -ne 0 ]; then
+                    echo "⚠️ Failed to check existing comments for PR #$pr_number, skipping to avoid duplicates"
+                    continue
+                  fi
                   
                   if [ -z "$existing_comment" ]; then
                     # Attempt to identify conflicting files by merging PR into the release branch locally (no commit)
                     set +e
                     git fetch origin "$branch" "$pr_branch" >/dev/null 2>&1
+                    fetch_status=$?
+                    set -e
+                    
+                    if [ $fetch_status -ne 0 ]; then
+                      echo "⚠️ Failed to fetch branches for PR #$pr_number"
+                      continue
+                    fi
+                    
+                    set +e
                     git checkout "$branch" >/dev/null 2>&1 && git reset --hard "origin/$branch" >/dev/null 2>&1
                     git merge --no-commit --no-ff "origin/$pr_branch" >/dev/null 2>&1
                     merge_status=$?
                     conflict_list=""
                     if [ $merge_status -ne 0 ]; then
-                      files=$(git diff --name-only --diff-filter=U | head -n 20)
+                      files=$(git diff --name-only --diff-filter=U 2>/dev/null | head -n 20)
                       if [ -n "$files" ]; then
                         conflict_list=$(echo "$files" | sed 's/^/- /')
                       fi
@@ -212,19 +243,33 @@ jobs:
                     fi
                     set -e
 
-                    # Comment on the PR including conflicting files if detected
-                    if [ -n "$conflict_list" ]; then
-                      printf '🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated with changes from `%s`.\n\n**Conflicting files (top 20):**\n%s\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$branch" "$conflict_list" "$branch" "$branch" "$pr_branch" "$pr_author" | gh pr comment "$pr_number" --body-file -
+                    # Only post comment if we actually detected a conflict (not just UNKNOWN status without real conflict)
+                    if [ $merge_status -ne 0 ] || [ "$mergeable" = "CONFLICTING" ]; then
+                      # Comment on the PR including conflicting files if detected
+                      if [ -n "$conflict_list" ]; then
+                        comment_body=$(printf '<!-- conflict-notification -->\n🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated. Please resolve the conflicts to proceed with merging.\n\n**Conflicting files (top 20):**\n%s\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$conflict_list" "$branch" "$branch" "$pr_branch" "$pr_author")
+                      else
+                        comment_body=$(printf '<!-- conflict-notification -->\n🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated. Please resolve the conflicts to proceed with merging.\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$branch" "$branch" "$pr_branch" "$pr_author")
+                      fi
+                      
+                      set +e
+                      echo "$comment_body" | gh pr comment "$pr_number" --body-file - 2>&1
+                      comment_status=$?
+                      set -e
+                      
+                      if [ $comment_status -eq 0 ]; then
+                        echo "✅ Notified @$pr_author about conflicts in PR #$pr_number" >> $GITHUB_STEP_SUMMARY
+                      else
+                        echo "⚠️ Failed to comment on PR #$pr_number (author: @$pr_author)" >> $GITHUB_STEP_SUMMARY
+                      fi
                     else
-                      printf '🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated with changes from `%s`. Please resolve the conflicts to proceed with merging.\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$branch" "$branch" "$branch" "$pr_branch" "$pr_author" | gh pr comment "$pr_number" --body-file -
+                      echo "ℹ️ PR #$pr_number has UNKNOWN mergeable status but no actual conflicts detected" >> $GITHUB_STEP_SUMMARY
                     fi
-                    
-                    echo "Notified @$pr_author about conflicts in PR #$pr_number" >> $GITHUB_STEP_SUMMARY
                   else
-                    echo "Conflict notification already exists for PR #$pr_number, skipping duplicate comment" >> $GITHUB_STEP_SUMMARY
+                    echo "ℹ️ Conflict notification already exists for PR #$pr_number, skipping duplicate comment" >> $GITHUB_STEP_SUMMARY
                   fi
                 fi
-              done
+              done < <(echo "$prs" | jq -c '.[]')
             fi
           done
 
