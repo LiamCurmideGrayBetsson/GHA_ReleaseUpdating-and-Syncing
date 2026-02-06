@@ -2,3 +2,5 @@ test2.txt
 
 
 Test - Changes in this branch that is an active PR and needs to be updated with master.
+
+Test - Having an active change different from master
