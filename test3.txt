@@ -3,5 +3,5 @@ test3.txt
 Test - To have a conflicting branch
 Test - To see what happens with a Conflict branch  take 2
 Test - To see what happens with a Conflict branch, take 3
-Test - Introduce a Conflict CHANGE 
-Test - Introduce a Conflict CHANGE 2
+Test - To see what happens with a Conflict branch, take 4
+Test - To see what happens with a Conflict branch, take 5
