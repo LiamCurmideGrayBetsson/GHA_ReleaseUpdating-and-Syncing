@@ -19,9 +19,12 @@ on:
 
 jobs:
   update-release-branches:
-    # Only run if the PR was merged (not just closed)
-    if: github.event.pull_request.merged == true
+    # Run for merged PRs or an explicitly configured reusable invocation.
+    if: github.event.pull_request.merged == true || inputs.base_branch != ''
     runs-on: ubuntu-latest
+    concurrency:
+      group: update-release-branches-${{ github.repository }}
+      cancel-in-progress: false
 
     permissions:
       contents: write
@@ -63,9 +66,9 @@ jobs:
           prs_to_master=""
           release_branches_with_prs=""
 
-          # Collect PRs targeting the base branch (OPEN or draft)
+          # Only open PRs are active; this includes open drafts, not closed drafts.
           set +e
-          tmp=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName == \"$BASE_BRANCH\") | .headRefName")
+          tmp=$(gh pr list --state open --json number,headRefName,baseRefName --jq ".[] | select(.baseRefName == \"$BASE_BRANCH\") | .headRefName")
           status=$?
           set -e
           if [ $status -eq 0 ]; then
@@ -74,9 +77,9 @@ jobs:
             prs_to_master=""
           fi
 
-          # Collect release branches that have OPEN or draft PRs
+          # Only release branches targeted by open PRs are active (including open drafts).
           set +e
-          tmp=$(gh pr list --state all --json number,headRefName,baseRefName,isDraft,state --jq ".[] | select(.state == \"OPEN\" or .isDraft == true) | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\\\.[0-9]+(\\\\.[0-9]+)?$\")) | .baseRefName")
+          tmp=$(gh pr list --state open --json number,headRefName,baseRefName --jq ".[] | select(.baseRefName | test(\"^release[/-]\") or test(\"^[0-9]+\\\\.[0-9]+(\\\\.[0-9]+)?$\")) | .baseRefName")
           status=$?
           set -e
           if [ $status -eq 0 ]; then
@@ -141,6 +144,8 @@ jobs:
                     echo "Successfully pushed updates to $branch"
                   else
                     echo "Failed to push updates to $branch"
+                    echo "Failed to push updates to $branch" >> "$GITHUB_STEP_SUMMARY"
+                    exit 1
                   fi
                 else
                   echo "Merge conflict detected in $branch - manual resolution required"
@@ -152,6 +157,64 @@ jobs:
                   fi
                   # Abort merge to clean working tree state
                   git merge --abort || true
+
+                  # Notify open PRs that use this release branch as their head.
+                  set +e
+                  release_prs=$(gh pr list --state open --head "$branch" --base "$BASE_BRANCH" --json number,author --jq '.[] | [.number, (.author.login // "")] | @tsv' 2>&1)
+                  pr_list_status=$?
+                  set -e
+
+                  if [ $pr_list_status -ne 0 ]; then
+                    echo "⚠️ Failed to find open PRs for release branch $branch: $release_prs"
+                    echo "Failed to find open PRs for release branch $branch" >> "$GITHUB_STEP_SUMMARY"
+                  elif [ -z "$release_prs" ]; then
+                    echo "No open PR found from $branch to $BASE_BRANCH"
+                  else
+                    if [ -n "$conflict_files" ]; then
+                      conflict_list=$(echo "$conflict_files" | sed 's/^/- /')
+                    fi
+                    conflict_signature=$(printf '%s\n%s\n%s' "$BASE_BRANCH" "$branch" "$conflict_files" | sha256sum | cut -d' ' -f1)
+                    comment_marker="<!-- release-branch-update-conflict:$conflict_signature -->"
+
+                    while IFS=$'\t' read -r pr_number pr_author; do
+                      author_mention=""
+                      if [ -n "$pr_author" ]; then
+                        author_mention=$(printf '\n\ncc @%s' "$pr_author")
+                      fi
+
+                      if [ -n "$conflict_files" ]; then
+                        comment_message=$(printf '🚨 **Release Branch Update Conflict**\n\nThe workflow could not merge `%s` into release branch `%s` because of conflicts. The branch was not updated.\n\n**Conflicting files:**\n%s\n\n**Steps to resolve:**\n1. Merge `%s` into `%s`\n2. Resolve the conflicts\n3. Push the updated `%s` branch.%s' "$BASE_BRANCH" "$branch" "$conflict_list" "$BASE_BRANCH" "$branch" "$branch" "$author_mention")
+                      else
+                        comment_message=$(printf '🚨 **Release Branch Update Conflict**\n\nThe workflow could not merge `%s` into release branch `%s`. The branch was not updated.\n\nMerge `%s` into `%s`, resolve any conflicts, and push the updated branch.%s' "$BASE_BRANCH" "$branch" "$BASE_BRANCH" "$branch" "$author_mention")
+                      fi
+                      comment_body=$(printf '%s\n%s' "$comment_marker" "$comment_message")
+
+                      set +e
+                      existing_comment=$(gh api --paginate --slurp "repos/{owner}/{repo}/issues/$pr_number/comments" 2>&1 | jq -r --arg marker "$comment_marker" --arg message "$comment_message" '
+                        def without_cc: split("\n") | map(select(startswith("cc @") | not)) | join("\n");
+                        .[][] | select(.user.login == "github-actions[bot]" and ((.body | contains($marker)) or (((.body | split("\n") | .[1:] | join("\n")) | without_cc) == ($message | without_cc)))) | .id
+                      ')
+                      comment_check_status=$?
+                      set -e
+
+                      if [ $comment_check_status -ne 0 ]; then
+                        echo "Failed to check existing comments for PR #$pr_number; skipping to avoid duplicates" >> "$GITHUB_STEP_SUMMARY"
+                      elif [ -n "$existing_comment" ]; then
+                        echo "Release branch conflict comment already exists on PR #$pr_number" >> "$GITHUB_STEP_SUMMARY"
+                      else
+                        set +e
+                        printf '%s\n' "$comment_body" | gh pr comment "$pr_number" --body-file - 2>&1
+                        comment_status=$?
+                        set -e
+
+                        if [ $comment_status -eq 0 ]; then
+                          echo "Posted release branch conflict comment on PR #$pr_number" >> "$GITHUB_STEP_SUMMARY"
+                        else
+                          echo "Failed to post release branch conflict comment on PR #$pr_number" >> "$GITHUB_STEP_SUMMARY"
+                        fi
+                      fi
+                    done <<< "$release_prs"
+                  fi
                   echo "Branch $branch requires manual merge resolution" >> $GITHUB_STEP_SUMMARY
                 fi
               else
@@ -178,7 +241,9 @@ jobs:
             if [[ "$branch" =~ ^release[/-] ]] || [[ "$branch" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]]; then
               # Get all open PRs targeting this release branch
               set +e
-              prs=$(gh pr list --base "$branch" --state open --json number,author,headRefName,mergeable 2>&1)
+              prs=$(gh api graphql --paginate -F owner='{owner}' -F name='{repo}' -f base="$branch" \
+                -f query='query($owner: String!, $name: String!, $base: String!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequests(first: 100, states: OPEN, baseRefName: $base, after: $endCursor) { nodes { number author { login } headRefName mergeable } pageInfo { hasNextPage endCursor } } } }' \
+                --jq '.data.repository.pullRequests.nodes' 2>&1)
               pr_list_status=$?
               set -e
               
@@ -205,7 +270,7 @@ jobs:
                   
                   # Check if we've already notified about conflicts (using unique marker)
                   set +e
-                  existing_comment=$(gh pr view "$pr_number" --json comments --jq '.comments[] | select(.author.login == "github-actions[bot]" and (.body | contains("<!-- conflict-notification -->"))) | .id' 2>&1 | head -n 1)
+                  existing_comment=$(gh api --paginate "repos/{owner}/{repo}/issues/$pr_number/comments" --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- conflict-notification -->"))) | .id' 2>&1)
                   comment_check_status=$?
                   set -e
                   
@@ -278,16 +343,17 @@ jobs:
         env:
           BASE_BRANCH: ${{ steps.resolve.outputs.base }}
           MERGED_PR_NUMBER: ${{ steps.resolve.outputs.pr }}
+          BRANCHES: ${{ steps.get-prs.outputs.branches }}
         run: |
-          echo "## Release Branch Update Summary" >> $GITHUB_STEP_SUMMARY
-          echo "Base branch: $BASE_BRANCH" >> $GITHUB_STEP_SUMMARY
+          echo "## Release Branch Update Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "Base branch: $BASE_BRANCH" >> "$GITHUB_STEP_SUMMARY"
           if [ -n "$MERGED_PR_NUMBER" ]; then
-            echo "Merged PR: #$MERGED_PR_NUMBER" >> $GITHUB_STEP_SUMMARY
+            echo "Merged PR: #$MERGED_PR_NUMBER" >> "$GITHUB_STEP_SUMMARY"
           fi
-          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "" >> "$GITHUB_STEP_SUMMARY"
 
-          if [ -z "${{ steps.get-prs.outputs.branches }}" ]; then
-            echo "No release branches with open PRs found to update." >> $GITHUB_STEP_SUMMARY
+          if [ -z "$BRANCHES" ]; then
+            echo "No release branches with open PRs found to update." >> "$GITHUB_STEP_SUMMARY"
           else
-            echo "Processed branches: ${{ steps.get-prs.outputs.branches }}" >> $GITHUB_STEP_SUMMARY
+            echo "Processed branches: $BRANCHES" >> "$GITHUB_STEP_SUMMARY"
           fi
