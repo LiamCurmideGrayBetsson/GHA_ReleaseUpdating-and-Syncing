@@ -173,6 +173,8 @@ jobs:
                     if [ -n "$conflict_files" ]; then
                       conflict_list=$(echo "$conflict_files" | sed 's/^/- /')
                     fi
+                    conflict_signature=$(printf '%s\n%s\n%s' "$BASE_BRANCH" "$branch" "$conflict_files" | sha256sum | cut -d' ' -f1)
+                    comment_marker="<!-- release-branch-update-conflict:$conflict_signature -->"
 
                     while IFS=$'\t' read -r pr_number pr_author; do
                       author_mention=""
@@ -181,13 +183,17 @@ jobs:
                       fi
 
                       if [ -n "$conflict_files" ]; then
-                        comment_body=$(printf '<!-- release-branch-update-conflict -->\n🚨 **Release Branch Update Conflict**\n\nThe workflow could not merge `%s` into release branch `%s` because of conflicts. The branch was not updated.\n\n**Conflicting files:**\n%s\n\n**Steps to resolve:**\n1. Merge `%s` into `%s`\n2. Resolve the conflicts\n3. Push the updated `%s` branch.%s' "$BASE_BRANCH" "$branch" "$conflict_list" "$BASE_BRANCH" "$branch" "$branch" "$author_mention")
+                        comment_message=$(printf '🚨 **Release Branch Update Conflict**\n\nThe workflow could not merge `%s` into release branch `%s` because of conflicts. The branch was not updated.\n\n**Conflicting files:**\n%s\n\n**Steps to resolve:**\n1. Merge `%s` into `%s`\n2. Resolve the conflicts\n3. Push the updated `%s` branch.%s' "$BASE_BRANCH" "$branch" "$conflict_list" "$BASE_BRANCH" "$branch" "$branch" "$author_mention")
                       else
-                        comment_body=$(printf '<!-- release-branch-update-conflict -->\n🚨 **Release Branch Update Conflict**\n\nThe workflow could not merge `%s` into release branch `%s`. The branch was not updated.\n\nMerge `%s` into `%s`, resolve any conflicts, and push the updated branch.%s' "$BASE_BRANCH" "$branch" "$BASE_BRANCH" "$branch" "$author_mention")
+                        comment_message=$(printf '🚨 **Release Branch Update Conflict**\n\nThe workflow could not merge `%s` into release branch `%s`. The branch was not updated.\n\nMerge `%s` into `%s`, resolve any conflicts, and push the updated branch.%s' "$BASE_BRANCH" "$branch" "$BASE_BRANCH" "$branch" "$author_mention")
                       fi
+                      comment_body=$(printf '%s\n%s' "$comment_marker" "$comment_message")
 
                       set +e
-                      existing_comment=$(gh pr view "$pr_number" --json comments --jq '.comments[] | select(.author.login == "github-actions[bot]" and (.body | contains("<!-- release-branch-update-conflict -->"))) | .id' 2>&1)
+                      existing_comment=$(gh api --paginate --slurp "repos/{owner}/{repo}/issues/$pr_number/comments" 2>&1 | jq -r --arg marker "$comment_marker" --arg message "$comment_message" '
+                        def without_cc: split("\n") | map(select(startswith("cc @") | not)) | join("\n");
+                        .[][] | select(.user.login == "github-actions[bot]" and ((.body | contains($marker)) or (((.body | split("\n") | .[1:] | join("\n")) | without_cc) == ($message | without_cc)))) | .id
+                      ')
                       comment_check_status=$?
                       set -e
 
@@ -264,7 +270,7 @@ jobs:
                   
                   # Check if we've already notified about conflicts (using unique marker)
                   set +e
-                  existing_comment=$(gh pr view "$pr_number" --json comments --jq '.comments[] | select(.author.login == "github-actions[bot]" and (.body | contains("<!-- conflict-notification -->"))) | .id' 2>&1 | head -n 1)
+                  existing_comment=$(gh api --paginate "repos/{owner}/{repo}/issues/$pr_number/comments" --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- conflict-notification -->"))) | .id' 2>&1)
                   comment_check_status=$?
                   set -e
                   
