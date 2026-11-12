@@ -7,6 +7,7 @@ Test - To see what happens with a Conflict branch, take 4
 Test - To see what happens with a Conflict branch, take 5
 Test - To see what happens with a Conflict branch, take 6
 Test - To see what happens with a Conflict branch, take 7
+Test - To see what happens with a Conflict branch, take 8
 
 
 
