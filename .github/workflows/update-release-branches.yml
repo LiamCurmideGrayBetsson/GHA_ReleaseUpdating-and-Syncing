@@ -190,17 +190,30 @@ jobs:
                       comment_body=$(printf '%s\n%s' "$comment_marker" "$comment_message")
 
                       set +e
-                      existing_comment=$(gh api --paginate --slurp "repos/{owner}/{repo}/issues/$pr_number/comments" 2>&1 | jq -r --arg marker "$comment_marker" --arg message "$comment_message" '
-                        def without_cc: split("\n") | map(select(startswith("cc @") | not)) | join("\n");
-                        .[][] | select(.user.login == "github-actions[bot]" and ((.body | contains($marker)) or (((.body | split("\n") | .[1:] | join("\n")) | without_cc) == ($message | without_cc)))) | .id
-                      ')
-                      comment_check_status=$?
+                      comments_json=$(gh api --paginate --slurp "repos/{owner}/{repo}/issues/$pr_number/comments" 2>&1)
+                      comments_status=$?
+                      if [ $comments_status -eq 0 ]; then
+                        existing_comment_id=$(printf '%s' "$comments_json" | jq -r '[.[][] | select(.user.login == "github-actions[bot]" and ((.body | contains("<!-- release-branch-update-conflict:")) or (.body | contains("<!-- release-branch-update-conflict -->")))) | .id] | last // empty')
+                        comment_check_status=$?
+                      else
+                        existing_comment_id=""
+                        comment_check_status=$comments_status
+                      fi
                       set -e
 
                       if [ $comment_check_status -ne 0 ]; then
                         echo "Failed to check existing comments for PR #$pr_number; skipping to avoid duplicates" >> "$GITHUB_STEP_SUMMARY"
-                      elif [ -n "$existing_comment" ]; then
-                        echo "Release branch conflict comment already exists on PR #$pr_number" >> "$GITHUB_STEP_SUMMARY"
+                      elif [ -n "$existing_comment_id" ]; then
+                        set +e
+                        gh api --method PATCH "repos/{owner}/{repo}/issues/comments/$existing_comment_id" -f body="$comment_body" 2>&1
+                        comment_status=$?
+                        set -e
+
+                        if [ $comment_status -eq 0 ]; then
+                          echo "Updated existing release branch conflict comment on PR #$pr_number" >> "$GITHUB_STEP_SUMMARY"
+                        else
+                          echo "Failed to update release branch conflict comment on PR #$pr_number" >> "$GITHUB_STEP_SUMMARY"
+                        fi
                       else
                         set +e
                         printf '%s\n' "$comment_body" | gh pr comment "$pr_number" --body-file - 2>&1
@@ -268,10 +281,17 @@ jobs:
                   git clean -fd >/dev/null 2>&1 || true
                   git merge --abort >/dev/null 2>&1 || true
                   
-                  # Check if we've already notified about conflicts (using unique marker)
+                  # Find an existing notification so it can be updated instead of duplicated.
                   set +e
-                  existing_comment=$(gh api --paginate "repos/{owner}/{repo}/issues/$pr_number/comments" --jq '.[] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- conflict-notification -->"))) | .id' 2>&1)
-                  comment_check_status=$?
+                  comments_json=$(gh api --paginate --slurp "repos/{owner}/{repo}/issues/$pr_number/comments" 2>&1)
+                  comments_status=$?
+                  if [ $comments_status -eq 0 ]; then
+                    existing_comment_id=$(printf '%s' "$comments_json" | jq -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- conflict-notification -->"))) | .id] | last // empty')
+                    comment_check_status=$?
+                  else
+                    existing_comment_id=""
+                    comment_check_status=$comments_status
+                  fi
                   set -e
                   
                   if [ $comment_check_status -ne 0 ]; then
@@ -279,7 +299,6 @@ jobs:
                     continue
                   fi
                   
-                  if [ -z "$existing_comment" ]; then
                     # Attempt to identify conflicting files by merging PR into the release branch locally (no commit)
                     set +e
                     git fetch origin "$branch" "$pr_branch" >/dev/null 2>&1
@@ -318,21 +337,26 @@ jobs:
                       fi
                       
                       set +e
-                      echo "$comment_body" | gh pr comment "$pr_number" --body-file - 2>&1
+                      if [ -n "$existing_comment_id" ]; then
+                        gh api --method PATCH "repos/{owner}/{repo}/issues/comments/$existing_comment_id" -f body="$comment_body" 2>&1
+                      else
+                        printf '%s\n' "$comment_body" | gh pr comment "$pr_number" --body-file - 2>&1
+                      fi
                       comment_status=$?
                       set -e
                       
                       if [ $comment_status -eq 0 ]; then
-                        echo "✅ Notified @$pr_author about conflicts in PR #$pr_number" >> $GITHUB_STEP_SUMMARY
+                        if [ -n "$existing_comment_id" ]; then
+                          echo "✅ Updated conflict notification for @$pr_author on PR #$pr_number" >> $GITHUB_STEP_SUMMARY
+                        else
+                          echo "✅ Notified @$pr_author about conflicts in PR #$pr_number" >> $GITHUB_STEP_SUMMARY
+                        fi
                       else
                         echo "⚠️ Failed to comment on PR #$pr_number (author: @$pr_author)" >> $GITHUB_STEP_SUMMARY
                       fi
                     else
                       echo "ℹ️ PR #$pr_number has UNKNOWN mergeable status but no actual conflicts detected" >> $GITHUB_STEP_SUMMARY
                     fi
-                  else
-                    echo "ℹ️ Conflict notification already exists for PR #$pr_number, skipping duplicate comment" >> $GITHUB_STEP_SUMMARY
-                  fi
                 fi
               done < <(echo "$prs" | jq -c '.[]')
             fi
