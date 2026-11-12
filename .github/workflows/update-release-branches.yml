@@ -157,6 +157,58 @@ jobs:
                   fi
                   # Abort merge to clean working tree state
                   git merge --abort || true
+
+                  # Notify open PRs that use this release branch as their head.
+                  set +e
+                  release_prs=$(gh pr list --state open --head "$branch" --base "$BASE_BRANCH" --json number,author --jq '.[] | [.number, (.author.login // "")] | @tsv' 2>&1)
+                  pr_list_status=$?
+                  set -e
+
+                  if [ $pr_list_status -ne 0 ]; then
+                    echo "⚠️ Failed to find open PRs for release branch $branch: $release_prs"
+                    echo "Failed to find open PRs for release branch $branch" >> "$GITHUB_STEP_SUMMARY"
+                  elif [ -z "$release_prs" ]; then
+                    echo "No open PR found from $branch to $BASE_BRANCH"
+                  else
+                    if [ -n "$conflict_files" ]; then
+                      conflict_list=$(echo "$conflict_files" | sed 's/^/- /')
+                    fi
+
+                    while IFS=$'\t' read -r pr_number pr_author; do
+                      author_mention=""
+                      if [ -n "$pr_author" ]; then
+                        author_mention=$(printf '\n\ncc @%s' "$pr_author")
+                      fi
+
+                      if [ -n "$conflict_files" ]; then
+                        comment_body=$(printf '<!-- release-branch-update-conflict -->\n🚨 **Release Branch Update Conflict**\n\nThe workflow could not merge `%s` into release branch `%s` because of conflicts. The branch was not updated.\n\n**Conflicting files:**\n%s\n\n**Steps to resolve:**\n1. Merge `%s` into `%s`\n2. Resolve the conflicts\n3. Push the updated `%s` branch.%s' "$BASE_BRANCH" "$branch" "$conflict_list" "$BASE_BRANCH" "$branch" "$branch" "$author_mention")
+                      else
+                        comment_body=$(printf '<!-- release-branch-update-conflict -->\n🚨 **Release Branch Update Conflict**\n\nThe workflow could not merge `%s` into release branch `%s`. The branch was not updated.\n\nMerge `%s` into `%s`, resolve any conflicts, and push the updated branch.%s' "$BASE_BRANCH" "$branch" "$BASE_BRANCH" "$branch" "$author_mention")
+                      fi
+
+                      set +e
+                      existing_comment=$(gh pr view "$pr_number" --json comments --jq '.comments[] | select(.author.login == "github-actions[bot]" and (.body | contains("<!-- release-branch-update-conflict -->"))) | .id' 2>&1)
+                      comment_check_status=$?
+                      set -e
+
+                      if [ $comment_check_status -ne 0 ]; then
+                        echo "Failed to check existing comments for PR #$pr_number; skipping to avoid duplicates" >> "$GITHUB_STEP_SUMMARY"
+                      elif [ -n "$existing_comment" ]; then
+                        echo "Release branch conflict comment already exists on PR #$pr_number" >> "$GITHUB_STEP_SUMMARY"
+                      else
+                        set +e
+                        printf '%s\n' "$comment_body" | gh pr comment "$pr_number" --body-file - 2>&1
+                        comment_status=$?
+                        set -e
+
+                        if [ $comment_status -eq 0 ]; then
+                          echo "Posted release branch conflict comment on PR #$pr_number" >> "$GITHUB_STEP_SUMMARY"
+                        else
+                          echo "Failed to post release branch conflict comment on PR #$pr_number" >> "$GITHUB_STEP_SUMMARY"
+                        fi
+                      fi
+                    done <<< "$release_prs"
+                  fi
                   echo "Branch $branch requires manual merge resolution" >> $GITHUB_STEP_SUMMARY
                 fi
               else
