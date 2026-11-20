@@ -1,1 +1,3 @@
 Test Scenario 1 - Normal Workflow No Active PRs in the repo.
+
+Test Scenario 2 - Active Release Branch that is ready to be merged to master.
