@@ -6,3 +6,5 @@ Test - Changes in this branch that is an active PR and needs to be updated with 
 Test - Having an active change different from master
 Test - Non Conflict Change
 Test - Non Conflict Change 2
+
+Test Scenario 2 - Non Conflict Change for Active Release PR.
