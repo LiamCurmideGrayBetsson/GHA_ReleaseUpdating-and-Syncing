@@ -1,3 +1,5 @@
 File used for Conflicts as well
 
 Test Scenario 5 - Introduce another conflict.
+
+Test Scenario 7 - Hotfix update
