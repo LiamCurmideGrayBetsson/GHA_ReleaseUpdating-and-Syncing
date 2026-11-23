@@ -182,11 +182,11 @@ jobs:
                         author_mention=$(printf '\n\ncc @%s' "$pr_author")
                       fi
 
+                      conflict_section=""
                       if [ -n "$conflict_files" ]; then
-                        comment_message=$(printf '🚨 **Release Branch Update Conflict**\n\nThe workflow could not merge `%s` into release branch `%s` because of conflicts. The branch was not updated.\n\n**Conflicting files:**\n%s\n\n**Steps to resolve:**\n1. Merge `%s` into `%s`\n2. Resolve the conflicts\n3. Push the updated `%s` branch.%s' "$BASE_BRANCH" "$branch" "$conflict_list" "$BASE_BRANCH" "$branch" "$branch" "$author_mention")
-                      else
-                        comment_message=$(printf '🚨 **Release Branch Update Conflict**\n\nThe workflow could not merge `%s` into release branch `%s`. The branch was not updated.\n\nMerge `%s` into `%s`, resolve any conflicts, and push the updated branch.%s' "$BASE_BRANCH" "$branch" "$BASE_BRANCH" "$branch" "$author_mention")
+                        conflict_section=$(printf '\n\n**Conflicting files:**\n%s' "$conflict_list")
                       fi
+                      comment_message=$(printf '🚨 **Merge Conflict Detected**\n\nThe branches `%s` and `%s` could not be merged automatically. Please resolve any conflicts before merging this PR.\n\nThe workflow could not update release branch `%s`.%s\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into `%s`\n3. Resolve any conflicts\n4. Push the updated `%s` branch.%s' "$BASE_BRANCH" "$branch" "$branch" "$conflict_section" "$BASE_BRANCH" "$BASE_BRANCH" "$branch" "$branch" "$author_mention")
                       comment_body=$(printf '%s\n%s' "$comment_marker" "$comment_message")
 
                       set +e
@@ -329,12 +329,11 @@ jobs:
 
                     # Only post comment if we actually detected a conflict (not just UNKNOWN status without real conflict)
                     if [ $merge_status -ne 0 ] || [ "$mergeable" = "CONFLICTING" ]; then
-                      # Comment on the PR including conflicting files if detected
+                      conflict_section=""
                       if [ -n "$conflict_list" ]; then
-                        comment_body=$(printf '<!-- conflict-notification -->\n🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated. Please resolve the conflicts to proceed with merging.\n\n**Conflicting files (top 20):**\n%s\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$conflict_list" "$branch" "$branch" "$pr_branch" "$pr_author")
-                      else
-                        comment_body=$(printf '<!-- conflict-notification -->\n🚨 **Merge Conflict Detected**\n\nThis PR now has conflicts with the base branch `%s`.\n\nThe release branch was recently updated. Please resolve the conflicts to proceed with merging.\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into your feature branch `%s`\n3. Resolve any conflicts\n4. Push the changes\n\ncc @%s' "$branch" "$branch" "$branch" "$pr_branch" "$pr_author")
+                        conflict_section=$(printf '\n\n**Conflicting files:**\n%s' "$conflict_list")
                       fi
+                      comment_body=$(printf '<!-- conflict-notification -->\n🚨 **Merge Conflict Detected**\n\nThe branches `%s` and `%s` could not be merged automatically. Please resolve any conflicts before merging this PR.%s\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into `%s`\n3. Resolve any conflicts\n4. Push the updated `%s` branch.\n\ncc @%s' "$branch" "$pr_branch" "$conflict_section" "$branch" "$branch" "$pr_branch" "$pr_branch" "$pr_author")
                       
                       set +e
                       if [ -n "$existing_comment_id" ]; then
