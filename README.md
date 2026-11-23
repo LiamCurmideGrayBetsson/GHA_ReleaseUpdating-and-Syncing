@@ -30,6 +30,7 @@ This repository contains a GitHub Action that automatically updates all active r
 - ✅ **Detects release branches** with both direct PRs to master and feature PRs to them
 - ✅ **Automatic conflict detection** for feature branch PRs after updates
 - ✅ **Smart notifications** that avoid duplicate comments on the same PR
+- ✅ **Conflict notification counts** start at 2 when an existing comment is updated and increase on each update, including repeated detections of the same conflict
 - ✅ **Only updates active branches** with open or draft PRs
 - ✅ **Includes conflicting files** in PR comments (top 20 when detected)
 - ✅ **Run summary** logs processed branches and notifications
