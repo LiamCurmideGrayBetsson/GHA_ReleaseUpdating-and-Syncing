@@ -1,14 +1,4 @@
-test3.txt
 
-Test - To have a conflicting branch
-Test - To see what happens with a Conflict branch  take 2
-Test - To see what happens with a Conflict branch, take 3
-Test - To see what happens with a Conflict branch, take 4
-Test - To see what happens with a Conflict branch, take 5
-Test - To see what happens with a Conflict branch, take 6
-Test - To see what happens with a Conflict branch, take 7
-Test - To see what happens with a Conflict branch, take 8
+Second File to indicate conflicts.
 
-
-
-Test - conflict two
+Test Scenario 5 - Multiple Conflicts Part 1 - Feature to Release
