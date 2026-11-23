@@ -8,3 +8,5 @@ Test Scenario 4 - Introduce Conflict Change
 
 Test Scenario 5 - Introduce Conflict Change for Multiple updates to master.
 Test Scenario 5 - Introducing another conflict.
+
+Test Scenario 7 - Hotfix update
