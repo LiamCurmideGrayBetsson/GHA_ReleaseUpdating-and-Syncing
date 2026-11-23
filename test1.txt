@@ -7,3 +7,4 @@ Test Scenario 3 - Active Feature Branch that has some changes to push and update
 Test Scenario 4 - Introduce Conflict Change
 
 Test Scenario 5 - Introduce Conflict Change for Multiple updates to master.
+Test Scenario 5 - Introducing another conflict.
