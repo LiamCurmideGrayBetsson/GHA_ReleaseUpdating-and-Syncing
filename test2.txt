@@ -10,3 +10,5 @@ Test - Non Conflict Change 2
 Test Scenario 2 - Non Conflict Change for Active Release PR.
 
 Test Scenario 6 - Update to master to trigger for Draft PR update.
+
+Test Scenario 7 - Normal change to update
