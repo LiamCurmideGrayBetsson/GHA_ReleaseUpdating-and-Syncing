@@ -3,3 +3,5 @@ Test Scenario 1 - Normal Workflow No Active PRs in the repo.
 Test Scenario 2 - Active Release Branch that is ready to be merged to master.
 
 Test Scenario 3 - Active Feature Branch that has some changes to push and update Release branch.
+
+Test Scenario 4 - Conflict Branch - Part 2 - Feature to Release
