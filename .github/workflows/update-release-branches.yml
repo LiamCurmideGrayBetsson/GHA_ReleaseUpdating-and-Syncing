@@ -193,8 +193,9 @@ jobs:
                       comments_json=$(gh api --paginate --slurp "repos/{owner}/{repo}/issues/$pr_number/comments" 2>&1)
                       comments_status=$?
                       if [ $comments_status -eq 0 ]; then
-                        existing_comment_id=$(printf '%s' "$comments_json" | jq -r '[.[][] | select(.user.login == "github-actions[bot]" and ((.body | contains("<!-- release-branch-update-conflict:")) or (.body | contains("<!-- release-branch-update-conflict -->")))) | .id] | last // empty')
+                        existing_comment=$(printf '%s' "$comments_json" | jq -r '[.[][] | select(.user.login == "github-actions[bot]" and ((.body | contains("<!-- release-branch-update-conflict:")) or (.body | contains("<!-- release-branch-update-conflict -->"))))] | last | if . == null then empty else [.id, (([.body | scan("(?m)^\\*\\*Conflict notification count: ([1-9][0-9]*)\\*\\*$")] | last | .[0] // "1") | tonumber + 1)] | @tsv end')
                         comment_check_status=$?
+                        IFS=$'\t' read -r existing_comment_id next_conflict_count <<< "$existing_comment"
                       else
                         existing_comment_id=""
                         comment_check_status=$comments_status
@@ -204,6 +205,7 @@ jobs:
                       if [ $comment_check_status -ne 0 ]; then
                         echo "Failed to check existing comments for PR #$pr_number; skipping to avoid duplicates" >> "$GITHUB_STEP_SUMMARY"
                       elif [ -n "$existing_comment_id" ]; then
+                        comment_body=$(printf '%s\n**Conflict notification count: %s**\n\n%s' "$comment_marker" "$next_conflict_count" "$comment_message")
                         set +e
                         gh api --method PATCH "repos/{owner}/{repo}/issues/comments/$existing_comment_id" -f body="$comment_body" 2>&1
                         comment_status=$?
@@ -286,8 +288,9 @@ jobs:
                   comments_json=$(gh api --paginate --slurp "repos/{owner}/{repo}/issues/$pr_number/comments" 2>&1)
                   comments_status=$?
                   if [ $comments_status -eq 0 ]; then
-                    existing_comment_id=$(printf '%s' "$comments_json" | jq -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- conflict-notification -->"))) | .id] | last // empty')
+                    existing_comment=$(printf '%s' "$comments_json" | jq -r '[.[][] | select(.user.login == "github-actions[bot]" and (.body | contains("<!-- conflict-notification -->")))] | last | if . == null then empty else [.id, (([.body | scan("(?m)^\\*\\*Conflict notification count: ([1-9][0-9]*)\\*\\*$")] | last | .[0] // "1") | tonumber + 1)] | @tsv end')
                     comment_check_status=$?
+                    IFS=$'\t' read -r existing_comment_id next_conflict_count <<< "$existing_comment"
                   else
                     existing_comment_id=""
                     comment_check_status=$comments_status
@@ -334,6 +337,9 @@ jobs:
                         conflict_section=$(printf '\n\n**Conflicting files:**\n%s' "$conflict_list")
                       fi
                       comment_body=$(printf '<!-- conflict-notification -->\n🚨 **Merge Conflict Detected**\n\nThe branches `%s` and `%s` could not be merged automatically. Please resolve any conflicts before merging this PR.%s\n\n**Steps to resolve:**\n1. Pull the latest changes from `%s`\n2. Merge `%s` into `%s`\n3. Resolve any conflicts\n4. Push the updated `%s` branch.\n\ncc @%s' "$branch" "$pr_branch" "$conflict_section" "$branch" "$branch" "$pr_branch" "$pr_branch" "$pr_author")
+                      if [ -n "$existing_comment_id" ]; then
+                        comment_body=$(printf '<!-- conflict-notification -->\n**Conflict notification count: %s**\n\n%s' "$next_conflict_count" "${comment_body#*$'\n'}")
+                      fi
                       
                       set +e
                       if [ -n "$existing_comment_id" ]; then
